@@ -16,7 +16,7 @@ updated: 2026-09-22
 
 1. BLE 调试器 CLI：人类交互模式（REPL/子命令、彩色表格）+ 无交互模式（`--json` 稳定 schema、确定性退出码、状态落盘文件、单条命令原子）。
 2. Claude Code SKILL：`.claude/skills/ble-cli/SKILL.md`，**脱敏版提交仓库**（D9 已决，内容用代号与占位符）；让未来任意 AI 会话凭 SKILL + 本机需求文档正确使用 CLI（命令速查/JSON 解读/退出码表/cookbook/故障排查/文档位置指针）。
-3. 目标设备 profile：第一个 profile 配置（TOML/YAML 格式待定，见 decisions.md D5）。
+3. 目标设备 profile：第一个 profile 配置（TOML，D5 已决，格式见 design.md 第 2 节）。
 4. 用例执行器：程序化解析 205 条用例文档（文档即数据源）；纯注入自动执行；物理刺激用例引导测试员；预期断言用规则文件（禁止字符串匹配），无法断言的标 MANUAL。
 5. 报告：每用例 PASS/FAIL/MANUAL，FAIL/MANUAL 附完整上行日志+时间戳，汇总 markdown。
 
