@@ -25,15 +25,19 @@ class BleakBackend(Backend):
 
     async def scan(self, timeout_s: float) -> list[DeviceInfo]:
         devices: dict[str, DeviceInfo] = {}
+
+        def _cb(device, adv):  # bleak 3.x: rssi lives on AdvertisementData
+            info = DeviceInfo(address=device.address,
+                              name=device.name or adv.local_name, rssi=adv.rssi)
+            prev = devices.get(device.address)
+            # keep the strongest sighting
+            if prev is None or (info.rssi is not None and
+                                (prev.rssi is None or info.rssi < prev.rssi)):
+                devices[device.address] = info
+
         try:
-            async with BleakScanner() as scanner:
+            async with BleakScanner(detection_callback=_cb):
                 await asyncio.sleep(timeout_s)
-                for d in scanner.discovered_devices:
-                    info = DeviceInfo(address=d.address, name=d.name, rssi=d.rssi)
-                    prev = devices.get(d.address)
-                    # keep the strongest sighting
-                    if prev is None or (info.rssi is not None and (prev.rssi is None or info.rssi < prev.rssi)):
-                        devices[d.address] = info
         except BleakError as exc:
             raise _map_exc(exc, BLE_OS_ERROR, "scan failed") from exc
         return sorted(devices.values(), key=lambda d: d.rssi if d.rssi is not None else 127)
