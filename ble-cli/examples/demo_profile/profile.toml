@@ -1,0 +1,58 @@
+# 示例 profile（占位 UUID 与合成帧，仅演示格式；真实 profile 见 .local/）
+# 格式定稿见仓库 .MEMORY/design.md 第 2 节
+
+[meta]
+name = "demo"
+version = "1.0"
+description = "示例 profile：演示格式与钩子用法，不可连接真实设备"
+
+[device]
+name_filter = "DemoDevice*"          # 扫描名称过滤（glob，可多个）
+# address = "AA:BB:CC:DD:EE:FF"      # 可选：直连固定 MAC
+# wake_hint = "扫描不到请人工唤醒"     # 可选：device_not_found 时附在错误里
+scan_timeout_s = 5.0
+connect_timeout_s = 10.0
+
+[[gatt.services]]
+service = "DEADBEEF-1000-4000-8000-000000000001"
+
+[gatt.chars.write]                   # 指令下行特征
+uuid = "DEADBEEF-1001-4000-8000-000000000001"
+write_type = "write_without_response"
+max_packet = 20
+
+[gatt.chars.notify]                  # 上报上行特征
+uuid = "DEADBEEF-1002-4000-8000-000000000001"
+cccd = "0001"
+max_packet = 16
+
+[handshake]                          # 连接后自动执行的握手序列
+deadline_ms = 5000
+sequence = [ { write = "DE AD BE EF" } ]
+expect = [                           # 全部命中即握手成功（顺序无关）
+  { pattern = "BE EF XX", name = "ack" },
+  { pattern = "CA FE +4B", name = "sn" },
+]
+
+[frames]
+byteorder = "big"
+
+[[frames.types]]
+name = "ack"
+match = { prefix = [0xBE, 0xEF], len = 3 }
+fields = [ { name = "value", byte = 2 } ]
+
+[[frames.types]]
+name = "sn"
+match = { pattern = "CA FE +4B" }
+fields = [
+  { name = "seq", byte = 2, len = 4 },
+]
+
+[[frames.types]]
+name = "float_report"                # 声明式够不到 → 钩子（见同目录 adapter.py）
+match = { prefix = [0xF1, 0x81], len = 10 }
+hook = "decode_float"
+
+[hooks]
+module = "adapter"
