@@ -15,7 +15,7 @@ updated: 2026-09-22
 # 交付物
 
 1. BLE 调试器 CLI：人类交互模式（REPL/子命令、彩色表格）+ 无交互模式（`--json` 稳定 schema、确定性退出码、状态落盘文件、单条命令原子）。
-2. Claude Code SKILL：`.claude/skills/ble-cli/SKILL.md`，让未来任意 AI 会话仅凭 SKILL 就能正确使用 CLI（命令速查/JSON 解读/退出码表/cookbook/故障排查/文档位置指针）。
+2. Claude Code SKILL：`.claude/skills/ble-cli/SKILL.md`，**脱敏版提交仓库**（D9 已决，内容用代号与占位符）；让未来任意 AI 会话凭 SKILL + 本机需求文档正确使用 CLI（命令速查/JSON 解读/退出码表/cookbook/故障排查/文档位置指针）。
 3. 目标设备 profile：第一个 profile 配置（TOML/YAML 格式待定，见 decisions.md D5）。
 4. 用例执行器：程序化解析 205 条用例文档（文档即数据源）；纯注入自动执行；物理刺激用例引导测试员；预期断言用规则文件（禁止字符串匹配），无法断言的标 MANUAL。
 5. 报告：每用例 PASS/FAIL/MANUAL，FAIL/MANUAL 附完整上行日志+时间戳，汇总 markdown。
@@ -47,5 +47,5 @@ BT Classic、2.4G 玩法、OTA、工厂模式、郊狼中继链路（P 组 P1.3/
 1. 人类模式冒烟：扫描发现目标设备→连接→使能上行通知→5s 内自动下发配置帧→收到握手/状态响应（具体标识见本地需求文档）。
 2. AI 模式冒烟：全 `--json` 无交互完成同流程（含状态文件恢复），输出可被程序稳定解析。
 3. 全部 P0 用例可执行（自动或交互引导），报告区分 PASS/FAIL/MANUAL，FAIL 日志齐全。
-4. 新 Claude 会话仅凭 SKILL 完成"连接设备并执行指定用例（编号见本地文档）"。
+4. 新 Claude 会话仅凭 SKILL（仓库脱敏版）+ 本机需求文档完成"连接设备并执行指定用例（编号见本地文档）"。
 5. 不改核心代码仅新增"示例 profile"证明配置驱动；给出 bumble/HCI 接入说明。
