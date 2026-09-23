@@ -78,7 +78,8 @@ class BleakBackend(Backend):
         except (BleakError, OSError) as exc:
             raise _map_exc(exc, BLE_OS_ERROR, "GATT discovery") from exc
         out: list[ServiceInfo] = []
-        for svc in services.services:
+        # bleak 3.x: BleakGATTServiceCollection.services is dict[int handle, svc]
+        for svc in services.services.values():
             info = ServiceInfo(uuid=svc.uuid)
             for ch in svc.characteristics:
                 info.characteristics.append(CharInfo(uuid=ch.uuid, properties=sorted(ch.properties)))

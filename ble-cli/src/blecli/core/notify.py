@@ -18,7 +18,8 @@ class UplinkRecorder:
 
     def on_notify(self, payload: bytes) -> None:
         rec = self.frame_table.record(payload) if self.frame_table else {
-            "type": "unknown", "hex": fmt_hex(payload), "ts": timestamp_ms()}
+            "type": "unknown", "hex": fmt_hex(payload)}
+        rec["t_ms"] = timestamp_ms()
         self.uplinks.append(rec)
 
     def snapshot(self) -> list[dict]:

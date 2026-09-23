@@ -181,7 +181,7 @@ async def run_case(
         human_declined = any(h.get("answer") == "no" for h in result.human_checks)
         result.result = result_of(
             result.assertion_results,
-            had_rule=(rule is not None),
+            had_rule=(rule is not None and rule.has_assertions),
             human_confirmed=human_confirmed,
             human_declined=human_declined,
             divergence=rule.divergence if rule else None,

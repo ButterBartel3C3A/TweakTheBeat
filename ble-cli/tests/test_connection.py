@@ -95,6 +95,7 @@ def test_open_session_handshake_ok(tmp_path):
     assert session.address == "AA:BB:CC:DD:EE:FF"
     assert len(session.handshake) == 1
     assert session.handshake[0]["hex"] == "CA FE 01"
+    assert session.handshake[0]["t_ms"].endswith("Z")  # ISO8601 UTC
 
 
 def test_open_session_handshake_timeout(tmp_path):

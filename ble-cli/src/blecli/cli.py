@@ -89,7 +89,8 @@ def build_parser() -> ArgParser:
     run.add_argument("--doc", metavar="PATH", required=True)
     run.add_argument("--rules", metavar="DIR", required=True, help="assertion rules directory")
     run.add_argument("--config", metavar="PATH")
-    run.add_argument("--id", metavar="CASE", help="run only this case id")
+    run.add_argument("--id", metavar="CASE", action="append", dest="ids",
+                     help="run only these case ids (repeatable)")
     run.add_argument("--group", metavar="G", help="run only this group")
     run.add_argument("--confirm-timeout", type=float, default=600.0,
                      help="seconds to wait for a tester confirmation")
@@ -233,6 +234,7 @@ async def _do_connect(session: Session) -> dict[str, Any]:
             svc: [c.uuid for c in by_uuid[svc].characteristics]
             for svc in session.profile.service_uuids
         },
+        "handshake": session.handshake,
     }
 
 
@@ -296,10 +298,11 @@ async def _do_cases(args, envelope: Envelope) -> dict[str, Any]:
     if args.cases_command == "run":
         profile = _profile(args)
         state = _state(args)
-        if args.id:
-            cases = [c for c in cases if c.id == args.id]
+        if args.ids:
+            cases = [c for c in cases if c.id in args.ids]
             if not cases:
-                raise BleCliError.usage(f"case {args.id!r} not found in document")
+                raise BleCliError.usage(
+                    f"none of {args.ids!r} found in document")
 
         opts = RunOptions(
             rules_dir=Path(args.rules),
