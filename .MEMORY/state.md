@@ -1,21 +1,20 @@
 ---
 title: 当前项目状态
 type: state
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # 当前状态
 
-- 阶段：**1 — 实现完成**（阶段 0 需求迭代与设计定稿已完成；11 项决策全部已决，见 decisions.md / design.md）
-- 当前活动：等待 D10 —— 一次性真机全量冒烟（人类模式 + AI 模式 + P0 用例；物理刺激用例需用户配合 confirm）。
-- 上一步（2026-09-22）：
-  - ble-cli 框架全部实现：四层架构（transport bleak → core 协议无关 → profiles TOML+钩子 → cli/repl/cases/report）；
-  - 54 项测试全绿（无需真机）；`python -m blecli` 可用；
-  - 解析器对真实用例文档验证：205 用例文档解析 203 有效、10 行异常如实进入校验报告（D4 不静默）；
-  - README.md 与脱敏版 SKILL（.claude/skills/ble-cli/，gitignore 豁免）就位；
-  - .local 就位（永不提交）：真实 profile + 钩子、8 条 P0 冒烟断言规则、用例解析配置；脚本化假后端干跑 runner 全路径 5/5 PASS。
+- 阶段：**1 — 实现完成 + D10 真机全量冒烟达成**（阶段 0 需求迭代与设计定稿已完成；11 项决策全部已决，见 decisions.md / design.md）
+- 当前活动：冒烟报告已生成（.local/runs/smoke.md，本机）。待用户决定后续：AI 模式长连接 daemon 子命令、不握手会话支持（C1.1 类）、.gitignore 审阅。
+- 上一步（2026-09-23）：
+  - D10 一次性真机全量冒烟完成：P0 共 8 用例 **7 PASS / 1 MANUAL / 0 FAIL**（A1.1/C1.2/C2.1/C2.2/D1.1/D6.1/D6.2/D7.1）；
+  - 冒烟验证：scan/init（握手）/gatt 树/write/物理刺激 confirm 全流程在真机可用；断言与 expect_not 判定准确；
+  - 冒烟暴露 6 处框架问题已修复提交（99116fb）：bleak 3.x services dict 迭代、上行 t_ms 时间戳、connect 输出补 handshake 证据、--id 可重复、有规则无断言的纯物理用例按矩阵判 MANUAL、回归断言；
+  - 两处设备行为与文档出入及一项新协议观测（按住按键注入配置帧后设备以固定间隔连续上报步进进度）——细节均记入本机 .local/README.md，仓库文本不涉帧值。
 - 待用户：
   - 审阅 .gitignore 并按需手动修改（自 04b027c 起仍在待办）；
-  - D10 冒烟时配合物理刺激用例（D1.1/D6.1/A1.1 需按键/旅行锁操作与 confirm）。
-- 阻塞项：无（D10 依赖真机在场，用户决定时机）。
-- 真机状态：未连接（冒烟时首次连接；D10 前不碰真机）。
+  - 决定 daemon 子命令（AI 模式长连接）是否立项。
+- 阻塞项：无。
+- 真机状态：冒烟结束已断开；设备 32s 无连接自动休眠，下次操作前需旅行锁唤醒。
