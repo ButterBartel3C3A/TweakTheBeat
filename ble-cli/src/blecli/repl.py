@@ -47,11 +47,52 @@ HELP = """\
   connect [MAC]       连接设备（默认按 profile 名称过滤扫描）
   init                使能通知 + 执行 profile 握手序列
   gatt                打印 GATT 树
-  write HEX [N]       写一帧；N 秒内打印上行
-  sub N               订阅收 N 秒上行（实时打印）
+  write HEX... [--listen N]  写一帧（hex 可空格分隔，如 write DE AD BE EF）
+  sub [--listen] N    订阅收 N 秒上行（实时打印）
   disconnect          断开连接
   help / quit         帮助 / 退出
 """
+
+
+def parse_write_args(toks: list[str]) -> tuple[bytes | None, float | None, str | None]:
+    """Parse ``write`` arguments: every hex token joins into ONE frame;
+    listen seconds are explicit via ``--listen N`` (a trailing number is
+    never consumed — ``write DE AD`` must mean the frame, not 0s listen).
+    Returns (frame, listen_s, error); error non-None means the others are None.
+    """
+    listen_s = None
+    if "--listen" in toks:
+        i = toks.index("--listen")
+        if i + 1 >= len(toks):
+            return None, None, "用法: write HEX... [--listen N]"
+        try:
+            listen_s = float(toks[i + 1])
+        except ValueError:
+            return None, None, "--listen 后需跟秒数"
+        toks = toks[:i] + toks[i + 2:]
+    if not toks:
+        return None, None, "用法: write HEX... [--listen N]"
+    try:
+        frame = parse_hex(" ".join(toks))
+    except ValueError as exc:
+        return None, None, f"hex 错误: {exc}"
+    if len(frame) == 0:
+        return None, None, "hex 为空"
+    return frame, listen_s, None
+
+
+def parse_sub_args(toks: list[str]) -> tuple[float | None, str | None]:
+    """Parse ``sub`` arguments: ``sub N`` or ``sub --listen N`` (``--timeout``
+    tolerated as an alias).  Returns (seconds, error)."""
+    if not toks:
+        return None, "用法: sub [--listen] N"
+    sec = toks[0]
+    if sec.startswith("--"):
+        sec = toks[1] if len(toks) > 1 else ""
+    try:
+        return float(sec), None
+    except ValueError:
+        return None, f"sub 秒数无效: {sec!r}"
 
 
 async def run_repl(args) -> None:
@@ -126,27 +167,26 @@ async def run_repl(args) -> None:
                 if session is None:
                     print(red("先 connect"))
                     continue
-                if len(parts) < 2:
-                    print(red("用法: write HEX [N]"))
-                    continue
-                try:
-                    frame = parse_hex(parts[1])
-                except ValueError as exc:
-                    print(red(f"hex 错误: {exc}"))
+                frame, listen_s, err = parse_write_args(parts[1:])
+                if err is not None:
+                    print(red(err))
                     continue
                 session.recorder.clear()
                 await session.backend.write(profile.write_char_uuid, frame, profile.write_with_response)
-                print(green(f"已写 {fmt_hex(frame)}"))
-                if len(parts) > 2:
-                    await _listen(session, float(parts[2]))
+                print(green(f"已写 {len(frame)} 字节: {fmt_hex(frame)}"))
+                if len(frame) <= 2:
+                    print(yellow(f"仅写了 {len(frame)} 字节，如意图为多字节帧请检查输入"))
+                if listen_s is not None:
+                    await _listen(session, listen_s)
             elif cmd == "sub":
                 if session is None:
                     print(red("先 connect"))
                     continue
-                if len(parts) < 2:
-                    print(red("用法: sub N"))
+                seconds, err = parse_sub_args(parts[1:])
+                if err is not None:
+                    print(red(err))
                     continue
-                await _listen(session, float(parts[1]))
+                await _listen(session, seconds)
             elif cmd == "disconnect":
                 await disconnect()
             else:
