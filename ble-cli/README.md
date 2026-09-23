@@ -135,7 +135,7 @@ ble-cli/
     cases/       # 用例解析/断言规则/执行器/报告
     cli.py repl.py output.py errors.py util.py
   examples/demo_profile/   # 示例 profile + 钩子
-  tests/                   # pytest（53 项，无需真机）
+  tests/                   # pytest（54 项，无需真机）
 ```
 
 仓库根目录另有 `.MEMORY/design.md`——五份设计定稿的唯一事实来源（决策速查表、profile/规则/信封 schema 全量规格）。
