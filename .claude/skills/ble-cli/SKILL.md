@@ -38,7 +38,7 @@ description: 操作 ble-cli（BLE GATT 调试 CLI）——扫描、连接、发�
 | `disconnect` | 清除状态文件里记住的设备 |
 | `confirm [--case-id ID] [--yes\|--no] [--note T]` | 回答用例执行器挂起的物理刺激确认 |
 | `cases list --doc PATH [--validate] [--config P] [--group G]` | 解析用例文档并列出（可校验） |
-| `cases run --doc PATH --rules DIR [--id C] [--group G] [--out P]` | 执行用例（需 profile），出报告 |
+| `cases run --doc PATH --rules DIR [--id C]... [--group G] [--out P]` | 执行用例（需 profile），出报告；--id 可重复指定多个用例 |
 | `report [--path P]` | 汇总某次报告（默认上次） |
 | `repl` | 交互式调试壳（持久连接） |
 

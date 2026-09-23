@@ -1,7 +1,7 @@
 ---
 title: 设计定稿
 type: project
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # 设计定稿（需求第八节五问 + 11 项决策的产物）
@@ -44,7 +44,7 @@ TweakTheBeat/
 └── .local/                            # ★ 本地私有（gitignore，永不提交）
     ├── profiles/target/profile.toml   # 目标设备真实 profile
     ├── profiles/target/adapter.py     # 可选钩子（D2 保底）
-    ├── cases/asserts/                 # 用例断言规则文件（真实帧）
+    ├── rules/                          # 用例断言规则文件（真实帧，<用例ID>.toml）
     ├── cases/config.toml              # 用例文档路径 + 解析选项
     └── runs/                          # 运行时状态文件/日志/报告
 ```
@@ -111,7 +111,7 @@ loader 校验：TOML 语法/必填键/未知键/hex 合法性/长度一致性/UU
 
 ## 3. 断言规则格式（D7）
 
-- 每用例一个 TOML 规则文件（`.local/cases/asserts/<用例ID>.toml`）；**渐进覆盖**：无规则文件的用例默认"注入+日志+MANUAL"。
+- 每用例一个 TOML 规则文件（`.local/rules/<用例ID>.toml`）；**渐进覆盖**：无规则文件的用例默认"注入+日志+MANUAL"。
 - 禁止字符串匹配；自然语言部分转测试员指引/人工检查项。
 
 ```toml
@@ -146,7 +146,7 @@ pattern = "AC 01 01"
 
 expect 可选语义检查：`count = { min = 3 }`（周期上报类）、`check = "increasing"`（字段单调递增）、`check = "adapter:xxx"`（钩子）。
 
-判定矩阵：全部命中+expect_not 未出现+人工检查项全过 → PASS；断言失败/窗口超时 → FAIL（附完整上行日志）；expect_none 出现上行/钩子缺失/人工项未答/解析失败/有 divergence → MANUAL（附原因）。
+判定矩阵：全部命中+expect_not 未出现+人工检查项全过 → PASS；断言失败/窗口超时 → FAIL（附完整上行日志）；expect_none 出现上行/钩子缺失/人工项未答/解析失败/有 divergence/**有规则但无断言（纯物理观察）** → MANUAL（附原因）。
 
 示例（demo 协议，真实规则文件在 .local/ 结构相同）：
 - 纯注入（序列+通配）：inject `DE AD BE EF` → expect `BE EF XX` 后 `CA FE +4B`
@@ -175,7 +175,7 @@ expect 可选语义检查：`count = { min = 3 }`（周期上报类）、`check 
 - **用法错误也 JSON 化**（argparse 错误被拦截重写为信封，`code="usage_error"` + 退出码 2）。
 - 退出码：0 成功 / 1 执行失败 / 2 用法错误；细分靠 `error.code`。
 
-各命令 data 形状：scan→devices[]；connect→connected/address/profile/services_found；init→handshake[]；gatt→services[]；write→written + 可选 uplinks[]（--listen N）；sub --timeout N→uplinks[]；cases list --validate→cases[]+stats；cases run→case_id/result(PASS|FAIL|MANUAL)/uplinks[]/assertion_results[]/human_checks[]；confirm→case_id/confirmed；report→path/summary{total,pass,fail,manual}；disconnect→disconnected。
+各命令 data 形状：scan→devices[]；connect→connected/address/profile/services_found/handshake[]；init→handshake[]；gatt→services[]；write→written + 可选 uplinks[]（--listen N）；sub --timeout N→uplinks[]；cases list --validate→cases[]+stats；cases run→case_id/result(PASS|FAIL|MANUAL)/uplinks[]/assertion_results[]/human_checks[]；confirm→case_id/confirmed；report→path/summary{total,pass,fail,manual}；disconnect→disconnected。
 
 error.code 全枚举：usage_error / device_not_found / connect_failed / service_not_found / char_not_found / write_failed / notify_failed / handshake_timeout / timeout / disconnected / profile_not_found / profile_invalid / profile_hook_error / cases_doc_not_found / cases_parse_failed / state_file_error / ble_os_error / internal_error。
 

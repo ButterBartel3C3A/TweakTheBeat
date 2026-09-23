@@ -115,10 +115,11 @@ prompt = "LED 是否点亮？"
 ```bash
 ble-cli --json cases list --doc cases.md --validate          # 解析 + 校验
 ble-cli --json --profile P cases run --doc cases.md --rules rules/ --out report
+ble-cli --json --profile P cases run --doc cases.md --rules rules/ --id X1.1 --id X2.1   # 批量指定用例（--id 可重复）
 ble-cli --json report --path report_20260922_103000          # 汇总
 ```
 
-判定矩阵：断言全过 + 人工确认齐备 → `PASS`；断言失败 → `FAIL`；无规则 / 未确认 / 覆盖不足 / 声明 divergence → `MANUAL`。报告为一对 `.md`（人类阅读）+ `.json`（机器读取）文件，含每个用例的上行日志表。
+判定矩阵：断言全过 + 人工确认齐备 → `PASS`；断言失败 → `FAIL`；无规则 / 有规则但无断言（纯物理观察）/ 未确认 / 覆盖不足 / 声明 divergence → `MANUAL`。报告为一对 `.md`（人类阅读）+ `.json`（机器读取）文件，含每个用例的上行日志表。
 
 物理刺激用例执行时会向状态文件写入 `pending_confirm` 并阻塞轮询；测试者（人）用 `ble-cli confirm --yes|--no --note ...` 应答，执行器读到后继续。
 
