@@ -85,7 +85,47 @@ ble-cli --json confirm                                # 回答用例执行器的
 
 ## Profile 文件
 
-设备的一切知识都在一个 `profile.toml` 里：广播名过滤、服务/特征 UUID、下行帧、上行通知、连接握手序列（写 sequence + 期望 pattern）、帧类型表（prefix+len 或 XX 通配 pattern 匹配、字节字段解码）、可选 Python 钩子模块（同目录 `adapter.py`，用 `AdapterBase` 解码自定义帧）。完整格式见根目录 `.MEMORY/design.md` 与 `examples/demo_profile/`。
+设备的一切知识都在一个 `profile.toml` 里：
+
+```toml
+[meta]
+name = "demo"
+
+[device]
+name_filter = "DemoDevice*"            # 扫描名称过滤（glob）
+scan_timeout_s = 5.0
+
+[gatt.chars.write]                     # 下行特征
+uuid = "DEADBEEF-1001-4000-8000-000000000001"
+write_type = "write_without_response"
+max_packet = 20
+
+[gatt.chars.notify]                    # 上行特征
+uuid = "DEADBEEF-1002-4000-8000-000000000001"
+cccd = "0001"
+
+[handshake]                            # 连接后自动执行的握手
+sequence = [ { write = "DE AD BE EF" } ]
+expect = [ { pattern = "BE EF XX", name = "ack" } ]
+
+[frames]                               # 上行帧类型表
+byteorder = "big"
+
+[[frames.types]]
+name = "ack"
+match = { prefix = [0xBE, 0xEF], len = 3 }   # 或 pattern = "BE EF XX"
+fields = [ { name = "value", byte = 2 } ]    # 大端取字节；可加 len
+
+[[frames.types]]
+name = "float_report"                  # 声明式够不到 → 钩子
+match = { prefix = [0xF1, 0x81], len = 10 }
+hook = "decode_float"                  # 同目录 adapter.py: decode_float(payload) -> dict
+
+[hooks]
+module = "adapter"                     # 可选
+```
+
+要点：`XX` 通配单字节、`+4B` 后缀长度；未匹配的上行标 `unknown` 带原始 hex 永不丢；loader 严格校验（未知键/hex 合法性/长度一致性 → `profile_invalid`）。完整格式见根目录 `.MEMORY/design.md`，带注释示例见 `examples/demo_profile/`（profile + 钩子 + `rules/` 断言规则示例）。
 
 ## 用例执行
 

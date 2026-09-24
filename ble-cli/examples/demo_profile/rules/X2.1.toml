@@ -1,0 +1,11 @@
+# 示例物理刺激规则（demo 协议，占位帧值）——执行时阻塞等待测试者 confirm
+
+case_id = "X2.1"
+mode = "physical"                # 物理刺激：指引 + 人工检查，无自动断言
+
+[human]
+instruction = "按下设备上的物理按键，然后松开"
+
+[[human.checks]]
+id = "led"
+prompt = "按键后 LED 是否点亮？"

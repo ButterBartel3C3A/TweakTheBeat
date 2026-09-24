@@ -46,15 +46,100 @@ description: 操作 ble-cli（BLE GATT 调试 CLI）——扫描、连接、发�
 
 设备命令（connect/init/gatt/write/sub）每条都是独立连接：先按 显式 --address → 状态文件记住的地址 → 扫描过滤 的顺序定位设备，再连接、校验 GATT、订阅、回放握手。
 
-## 4. --json 解读要点
+## 4. profile 与断言规则 TOML 速写
+
+profile.toml 承载设备的全部知识（广播名过滤、GATT 布局、握手序列、帧类型表），断言规则是每用例一个 `<case_id>.toml`。全量规格见 `.MEMORY/design.md` 第 2、3 节，带注释示例见 `ble-cli/examples/demo_profile/`。
+
+**profile.toml 六节**（示例帧与 UUID 为虚构占位）：
+
+```toml
+[meta]
+name = "demo"                 # profile 名（报告/输出用）
+
+[device]
+name_filter = "DemoDevice*"   # 扫描名称过滤（glob，可多个）
+# address = "AA:BB:CC:DD:EE:FF"  # 可选：直连固定 MAC
+# wake_hint = "扫描不到请人工唤醒"  # 可选：device_not_found 时附在错误消息里
+scan_timeout_s = 5.0
+connect_timeout_s = 10.0
+
+[[gatt.services]]
+service = "DEADBEEF-1000-4000-8000-000000000001"
+
+[gatt.chars.write]              # 下行特征
+uuid = "DEADBEEF-1001-4000-8000-000000000001"
+write_type = "write_without_response"   # 或 write_with_response
+max_packet = 20
+
+[gatt.chars.notify]             # 上行特征
+uuid = "DEADBEEF-1002-4000-8000-000000000001"
+cccd = "0001"
+max_packet = 16
+
+[handshake]                     # 连接后自动执行的握手
+sequence = [ { write = "DE AD BE EF" } ]
+expect = [                      # 全部命中即成功（顺序无关）
+  { pattern = "BE EF XX", name = "ack" },
+  { pattern = "CA FE +4B", name = "sn" },
+]
+
+[frames]                        # 上行帧类型表（分类 + 解码）
+byteorder = "big"
+
+[[frames.types]]
+name = "ack"
+match = { prefix = [0xBE, 0xEF], len = 3 }   # 或 pattern = "BE EF XX"
+fields = [ { name = "value", byte = 2 } ]     # 按大端取字节；可加 len
+
+[[frames.types]]
+name = "float_report"           # 声明式够不到 → 钩子
+match = { prefix = [0xF1, 0x81], len = 10 }
+hook = "decode_float"           # adapter.py 的 decode_float(payload) -> dict
+
+[hooks]
+module = "adapter"              # 可选：profile 同目录 adapter.py
+```
+
+**断言规则 `<case_id>.toml`**：
+
+```toml
+case_id = "X1.1"
+mode = "inject"                  # inject | physical | observe
+
+[[inject]]
+write = "DE AD"                  # 注入帧，可多条按序写
+
+[assert]
+timeout_ms = 5000                # 判定窗口
+
+[[assert.expect]]                # 数组顺序 = 时序顺序
+name = "ack"
+pattern = "BE EF XX"
+
+[[assert.expect_not]]
+pattern = "AC 01 01"             # 窗口内出现即失败
+
+# expect_none = true             # 窗口内应无任何上行
+# divergence = "固件现状与需求不符"  # → 自动 MANUAL
+
+[human]                          # physical / 人工检查用例
+instruction = "按下物理按键"
+[[human.checks]]
+id = "led"
+prompt = "LED 是否点亮？"
+```
+
+要点：`XX` 通配单字节、`+4B` 后缀长度；未匹配的上行标 `unknown` 带原始 hex 永不丢；loader 严格校验（未知键/hex 合法性/长度一致性 → `profile_invalid`）；断言失败 → FAIL，无规则 / 有规则无断言 / 未确认 / divergence → MANUAL。
+
+## 5. --json 解读要点
 
 - stdout 只有一个 JSON 信封；进度信息走 stderr，解析时忽略
 - 信封恒含：`schema`("ble-cli/1")、`command`、`status`("ok"|"error")、`data`、`error`(null 或 `{"code","message"}`)、`warnings`、`state_file`、`elapsed_ms`
-- `status=="error"` 时按 `error.code` 分支处理（见第 5 节）；用法错误同样进信封（exit 2）
+- `status=="error"` 时按 `error.code` 分支处理（见第 6 节）；用法错误同样进信封（exit 2）
 - 设备地址、pending 确认、上次报告路径都经状态文件跨命令传递——别在脑内记
 - 成功退出码 0 / 执行失败 1 / 用法错误 2
 
-## 5. 退出码与 error.code 全枚举
+## 6. 退出码与 error.code 全枚举
 
 | code | 含义 | 应对动作 |
 |---|---|---|
@@ -72,7 +157,7 @@ description: 操作 ble-cli（BLE GATT 调试 CLI）——扫描、连接、发�
 | `state_file_error` | 状态文件损坏/不可写 | 检查路径权限；必要时备份后删除重建 |
 | `internal_error` | 兜底（含 Ctrl-C） | 报告给开发者，附 message |
 
-## 6. Cookbook
+## 7. Cookbook
 
 **人类冒烟（交互）**
 ```
@@ -100,7 +185,7 @@ ble-cli --json --profile <P> sub --timeout 5
 
 **只发一帧**：`ble-cli --json --profile <P> write "AA BB CC" --listen 1`。hex 接受空格/冒号/连字符分隔或紧凑写法（`aabbcc`）。
 
-## 7. 故障排查
+## 8. 故障排查
 
 | 症状 | 下一步 |
 |---|---|
@@ -112,7 +197,7 @@ ble-cli --json --profile <P> sub --timeout 5
 | 扫描结果陈旧 | 重新 scan；`--address` 直连可绕过发现 |
 | 命令间地址丢失 | 检查 `--state-file` 路径一致（默认 `.local/runs/state.json`） |
 
-## 8. 资料位置指针
+## 9. 资料位置指针
 
 | 资料 | 位置 |
 |---|---|
@@ -123,7 +208,7 @@ ble-cli --json --profile <P> sub --timeout 5
 | 示例 profile 与钩子 | `ble-cli/examples/demo_profile/` |
 | 测试（无需真机） | `ble-cli/tests/`，`ble-cli/.venv/Scripts/python -m pytest ble-cli/tests -q` |
 
-## 9. 保密红线（提交前自查）
+## 10. 保密红线（提交前自查）
 
 1. 仓库文本（含本 SKILL、README、.MEMORY、代码注释）与 commit message 中**禁止出现**：外部数据源（商用闭源库）的名称/路径/内部结构、被测设备品牌/产品名/广播名、真实协议 UUID、真实帧字节值；
 2. 被测设备在仓库文本中一律以「目标设备」指代；

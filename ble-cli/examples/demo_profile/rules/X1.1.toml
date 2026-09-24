@@ -1,0 +1,28 @@
+# 示例断言规则（demo 协议，占位帧值）——用法: cases run --rules <本目录>
+# 格式定稿见仓库 .MEMORY/design.md 第 3 节；每用例一个 <case_id>.toml
+
+case_id = "X1.1"
+mode = "inject"                  # inject | physical | observe
+
+[[inject]]
+write = "DE AD"                  # 注入帧，可多条按序写
+
+[assert]
+timeout_ms = 5000                # 注入后判定窗口（毫秒）
+
+[[assert.expect]]                # 数组顺序 = 时序顺序（游标推进）
+name = "ack"
+pattern = "BE EF XX"
+
+[[assert.expect]]
+name = "sn"
+pattern = "CA FE +4B"            # +4B = 后面还跟任意 4 字节
+
+[[assert.expect_not]]
+pattern = "AC 01 01"             # 窗口内出现即失败
+
+# 可选语义检查:
+#   count = { min = 3 }          # 周期上报帧出现次数下限
+#   check = "increasing"         # 字段单调递增（或 "adapter:xxx" 钩子）
+#   expect_none = true           # 窗口内应无任何上行
+#   divergence = "固件现状与需求不符"   # → 自动 MANUAL
