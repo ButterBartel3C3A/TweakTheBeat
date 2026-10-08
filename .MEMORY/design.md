@@ -117,6 +117,7 @@ loader 校验：TOML 语法/必填键/未知键/hex 合法性/长度一致性/UU
 
 ```toml
 case_id = "X1.1"
+fresh_connection = true              # D12：该用例前强制重开会话（观察握手的 observe 用例必须）
 mode = "inject"                      # inject | physical | observe
 
 [[inject]]

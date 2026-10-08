@@ -1,10 +1,17 @@
 ---
 title: 需求迭代日志
 type: iteration
-updated: 2026-09-23
+updated: 2026-10-08
 ---
 
 # 需求迭代日志（时间倒序，只追加不改写）
+
+## 2026-10-08 — D11/D12 拍板并实现：AI 长连接双方案落地
+
+- 用户再次提出「有没有什么办法让 AI 使用时不频繁重新连接」——AI 给出两层面方案：A（cases run 单连接复用，小改动大收益）+ B（daemon 子命令，完整解），用户拍板「两个都做，两者不冲突，均按 AI 推荐」。
+- 逐项定案：A1 默认复用 + 规则 fresh_connection 声明；B1 状态文件轮询通道（避开 Windows 防火墙弹窗）；B2 透明路由（无 daemon 自动回退直连，--json 契约不变）；B3 空闲 10 分钟自动停 + 断线惰性重连 + 崩溃回退清理；B4 cases run/repl 与 daemon 互斥报 device_busy。
+- 实现并提交 a4274cc：daemon 子命令（start/serve/stop/status）+ run_cases 单连接复用 + loader 加固（expect 条目未知键报错）+ 19 项新测试（73 全绿）。C1.2 规则加 fresh_connection（观察握手语义）。
+- 待办：真机验证 daemon 全流程与批量复用（需用户在场）。
 
 ## 2026-09-23 — D10 真机冒烟达成 + long-run 诉求（daemon 候选）
 
