@@ -1,7 +1,7 @@
 ---
 title: 设计定稿
 type: project
-updated: 2026-09-23
+updated: 2026-10-08
 ---
 
 # 设计定稿（需求第八节五问 + 11 项决策的产物）
@@ -37,7 +37,8 @@ TweakTheBeat/
 │   │   │   ├── rules.py               # 断言规则引擎（D7）
 │   │   │   ├── runner.py              # 状态机：注入/等待/confirm/超时（D3）
 │   │   │   └── report.py              # PASS/FAIL/MANUAL markdown 报告
-│   │   └── repl.py                    # 人类交互模式（彩色表格）
+│   │   ├── repl.py                    # 人类交互模式（彩色表格）
+│   │   └── daemon.py                  # daemon 服务端（持连接+文件通道，D11）
 │   ├── examples/demo_profile/         # 示例 profile（占位符 UUID，公开）
 │   │   └── profile.toml
 │   └── tests/                         # 框架单测（mock 后端）
@@ -180,6 +181,16 @@ expect 可选语义检查：`count = { min = 3 }`（周期上报类）、`check 
 error.code 全枚举：usage_error / device_not_found / connect_failed / service_not_found / char_not_found / write_failed / notify_failed / handshake_timeout / timeout / disconnected / profile_not_found / profile_invalid / profile_hook_error / cases_doc_not_found / cases_parse_failed / state_file_error / ble_os_error / internal_error。
 
 状态文件（`.local/runs/state.json`）：记录逻辑状态与进度（device/last_action/pending_confirm/run_log），BLE 连接每次调用重建（连接→profile 握手自动重放）；`pending_confirm` 是 runner 阻塞等待时轮询的确认点（测试员跑 `confirm` 写入）。
+
+### 4.1 daemon 子命令与连接复用（D11/D12）
+
+- **cases run 单连接复用（D12）**：一次 run 全程一条连接，用例间不重连；规则文件声明 `fresh_connection = true` 则在该用例前强制重开会话；连接意外断开时重连一次重试该用例。上行窗口语义：复用会话的用例在窗口前清空记录器（不泄漏前用例上行）；**本用例新建的会话（含 fresh_connection 重开）保留握手上行**——observe 类"观察连接握手"的用例必须声明 fresh_connection，断言对象正是重开握手的上行。
+- **daemon（D11）**：`daemon start` 起后台进程持连接，pid 与通道路径记入状态文件。命令通道 = 同目录文件轮询：
+  - 命令：`daemon-cmd.json`（`{"id": "<uuid>", "command": "write", "args": {...}}`，单写者单读者，天然串行）
+  - 结果：`daemon-result-<id>.json`（--json 信封同构的 data/error）
+  - 设备命令（connect/init/gatt/write/sub）**透明路由**：检测 daemon 存活 → 写命令文件 → 轮询结果文件（默认 15s 超时）→ 原样返回；通道无响应/daemon 死 → 回退直连并清理 stale 记录。
+- **生命周期**：空闲 10 分钟自动停（`daemon start --idle-timeout N` 可配）；`daemon stop`/`daemon status`；设备断线 → 下条命令惰性重连+握手，失败回 `device_not_found`。
+- **单连接互斥**：cases run / repl 启动时检测 daemon 存活 → `device_busy` 报错，提示先 `daemon stop`。
 
 ## 5. SKILL 结构（第八节第 5 问，D9）
 

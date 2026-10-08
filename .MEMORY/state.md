@@ -1,13 +1,14 @@
 ---
 title: 当前项目状态
 type: state
-updated: 2026-09-23
+updated: 2026-10-08
 ---
 
 # 当前状态
 
-- 阶段：**1 — 实现完成 + D10 真机全量冒烟达成**（阶段 0 需求迭代与设计定稿已完成；11 项决策全部已决，见 decisions.md / design.md）
-- 当前活动：冒烟报告已生成（.local/runs/smoke.md，本机）。待用户决定后续：AI 模式长连接 daemon 子命令、不握手会话支持（C1.1 类）、.gitignore 审阅。
+- 阶段：**1 — 实现完成 + D10 真机全量冒烟达成 + D11/D12 已决已实现**（见 decisions.md / design.md）
+- 当前活动：D11（daemon 子命令）与 D12（cases run 单连接复用）已实现，73 项单测全绿、本机干跑 5/5（C1.2 已加 fresh_connection）。**待真机验证**：daemon start→透明路由→stop 全流程、批量用例单连接复用（需用户在场）。
+- 待用户：真机验证时间；不握手会话支持（C1.1 类）；.gitignore 审阅。
 - 上一步（2026-09-23）：
   - D10 一次性真机全量冒烟完成：P0 共 8 用例 **7 PASS / 1 MANUAL / 0 FAIL**（A1.1/C1.2/C2.1/C2.2/D1.1/D6.1/D6.2/D7.1）；
   - 冒烟验证：scan/init（握手）/gatt 树/write/物理刺激 confirm 全流程在真机可用；断言与 expect_not 判定准确；

@@ -12,7 +12,8 @@
 - 四层架构：传输后端（bleak，预留 bumble/HCI）→ 核心层（无任何设备知识）→ 适配层（TOML profile + Python 钩子）→ 应用层（CLI / 用例执行器 / 报告）
 - 人类模式：持久连接 REPL、ANSI 彩色表格（自动检测 isatty）
 - AI 模式：单条命令 = 单次连接（BLE 连接无法跨进程共享），状态通过磁盘文件在命令间传递
-- 用例执行：Markdown 表格用例文档 + 每用例一个 TOML 断言规则（渐进覆盖），自动校验报告，覆盖不足自动降级 MANUAL
+- 用例执行：Markdown 表格用例文档 + 每用例一个 TOML 断言规则（渐进覆盖），自动校验报告，覆盖不足自动降级 MANUAL；一次 run 全程单连接（规则可声明 `fresh_connection = true` 强制重开）
+- daemon 长连接：后台进程持连接，AI 逐条命令透明路由复用同一链路（空闲 10 分钟自动停，断线惰性重连）
 - 三档退出码（0/1/2）+ JSON `error.code` 字符串枚举，AI 可直接按码分支
 
 ## 安装
@@ -69,6 +70,22 @@ ble-cli --json --profile P write "DE AD" --listen 2
 ble-cli --json --profile P sub --timeout 5
 ble-cli --json confirm                                # 回答用例执行器的物理刺激确认
 ```
+
+### daemon 长连接（D11）
+
+逐条命令都独立连接很浪费，且设备可能在下一条命令前休眠。`daemon start` 起一个后台进程持连接，此后的设备命令**透明路由**走同一条链路（检测不到 daemon 时自动回退直连，`--json` 输出契约不变）：
+
+```bash
+ble-cli --json --profile P daemon start               # 后台持连接（空闲 10 分钟自动停）
+ble-cli --json --profile P write "DE AD" --listen 2   # 自动走 daemon，秒回
+ble-cli --json --profile P sub --timeout 5
+ble-cli --json daemon status                          # running / record
+ble-cli --json daemon stop                            # 显式停止
+```
+
+- 命令通道 = 状态文件同目录的文件轮询（零新依赖、无端口、无防火墙提示）
+- 设备断线时 daemon 在下条命令时惰性重连+握手，失败回 `device_not_found`
+- 单连接互斥：`cases run` / `repl` 启动时若 daemon 持连接会报 `device_busy`，先 `daemon stop`
 
 ## error.code 全枚举
 
@@ -158,6 +175,8 @@ ble-cli --json --profile P cases run --doc cases.md --rules rules/ --out report
 ble-cli --json --profile P cases run --doc cases.md --rules rules/ --id X1.1 --id X2.1   # 批量指定用例（--id 可重复）
 ble-cli --json report --path report_20260922_103000          # 汇总
 ```
+
+`fresh_connection = true`（规则顶层键）声明"该用例前强制重开会话"——观察连接握手的 observe 用例必须用它（断言对象就是重开握手的上行）；其余用例默认复用 run 级连接，窗口前清空记录器不泄漏前用例上行。
 
 判定矩阵：断言全过 + 人工确认齐备 → `PASS`；断言失败 → `FAIL`；无规则 / 有规则但无断言（纯物理观察）/ 未确认 / 覆盖不足 / 声明 divergence → `MANUAL`。报告为一对 `.md`（人类阅读）+ `.json`（机器读取）文件，含每个用例的上行日志表。
 

@@ -74,18 +74,84 @@ class CaseResult:
         }
 
 
-async def run_case(
-    case: Case,
+async def run_cases(
+    cases: list[Case],
     profile,
     backend_factory: Callable[[], Any],
     state_path: Path,
     opts: RunOptions,
     address: str | None,
-) -> CaseResult:
-    started = time.monotonic()
-    rule_path = find_rule(opts.rules_dir, case.id)
-    rule = load_rule(rule_path) if rule_path else None
+) -> list[CaseResult]:
+    """Run every case over ONE shared connection (D12).
 
+    Reconnects only when: no session yet, a rule declares
+    ``fresh_connection = true``, or the link drops mid-case (one retry).
+    """
+    results: list[CaseResult] = []
+    session: Session | None = None
+    try:
+        for case in cases:
+            rule_path = find_rule(opts.rules_dir, case.id)
+            rule = load_rule(rule_path) if rule_path else None
+            result = None
+            opened_for_case = False
+            for attempt in (1, 2):
+                if session is None or (attempt == 1 and rule is not None
+                                       and rule.fresh_connection):
+                    if session is not None:
+                        await close_session(session)
+                        session = None
+                    try:
+                        session = await open_session(
+                            backend_factory(), profile, address=address,
+                            state_address=None)
+                        opened_for_case = True
+                    except BleCliError as exc:
+                        if attempt == 1 and session is None:
+                            continue  # one reconnect attempt
+                        result = _infra_result(case, rule_path, exc)
+                        break
+                try:
+                    result = await _execute_case(case, rule, rule_path, profile,
+                                                 session, opts, state_path,
+                                                 clear_recorder=not opened_for_case)
+                except BleCliError as exc:
+                    # link dropped mid-case: reconnect once and retry the case
+                    if attempt == 1 and session is not None:
+                        await close_session(session)
+                        session = None
+                        continue
+                    result = _infra_result(case, rule_path, exc)
+                break
+            if result is not None:
+                results.append(result)
+    finally:
+        if session is not None:
+            await close_session(session)
+    return results
+
+
+def _infra_result(case: Case, rule_path: Path | None, exc: BleCliError) -> CaseResult:
+    result = CaseResult(case_id=case.id, group=case.group,
+                        group_title=case.group_title, result="FAIL", uplinks=[],
+                        rule=str(rule_path) if rule_path else None)
+    result.reasons.append(f"infra: {exc.code}: {exc.message}")
+    return result
+
+
+async def _execute_case(
+    case: Case,
+    rule: Rule | None,
+    rule_path: Path | None,
+    profile,
+    session: Session,
+    opts: RunOptions,
+    state_path: Path,
+    clear_recorder: bool = True,
+) -> CaseResult:
+    """One case against an already-open session (D12: connection managed by
+    ``run_cases``).  Raises BleCliError when the link itself fails."""
+    started = time.monotonic()
     result = CaseResult(case_id=case.id, group=case.group,
                         group_title=case.group_title, result="MANUAL", uplinks=[],
                         rule=str(rule_path) if rule_path else None)
@@ -123,72 +189,59 @@ async def run_case(
     if rule is not None and rule.divergence:
         result.reasons.append(f"divergence noted in rule: {rule.divergence}")
 
-    # --- device interaction ------------------------------------------------
-    backend = None
-    session: Session | None = None
-    try:
-        backend = backend_factory()
-        session = await open_session(backend, profile, address=address,
-                                     state_address=None)
-    except BleCliError as exc:
-        result.result = "FAIL"
-        result.reasons.append(f"infra: {exc.code}: {exc.message}")
-        if backend is not None:
-            await backend.disconnect()
-        result.duration_ms = _elapsed(started)
-        return result
+    # --- device interaction (session is open; link errors raise) ----------
+    # D12 shared connection: clear only when reusing a session from an
+    # earlier case, so the window never sees another case's uplinks.  A
+    # session opened FOR this case (incl. fresh_connection reconnects) keeps
+    # its handshake uplinks — observe cases assert exactly those.
+    if clear_recorder:
+        session.recorder.clear()
+    if inject_bytes:
+        for frame in inject_bytes:
+            await session.backend.write(profile.write_char_uuid, frame,
+                                        profile.write_with_response)
+            result.injected.append(" ".join(f"{b:02X}" for b in frame))
 
-    try:
-        if inject_bytes:
-            session.recorder.clear()
-            for frame in inject_bytes:
-                await session.backend.write(profile.write_char_uuid, frame,
-                                            profile.write_with_response)
-                result.injected.append(" ".join(f"{b:02X}" for b in frame))
-
-        if mode == "physical" or (rule is not None and rule.checks):
-            # block on the tester (instruction may be given even in inject
-            # mode when the rule carries human visual checks)
-            if instruction:
-                result.instruction = instruction
-                opts.progress(f"[{case.id}] 指引: {instruction}")
-            answer = await _wait_for_confirm(
-                case.id, instruction or case.physical or "",
-                [{"id": c["id"], "prompt": c["prompt"]} for c in (rule.checks if rule else [])],
-                state_path, opts.confirm_timeout_s)
-            if answer is None:
-                result.reasons.append("physical step not confirmed (timeout)")
-                result.human_checks = [
-                    {**c, "answer": "unanswered"} for c in (rule.checks if rule else [])]
-            else:
-                result.human_checks = [
-                    {**c, "answer": answer["answer"]} for c in (rule.checks if rule else [])]
-                if answer["answer"] != "yes":
-                    result.reasons.append("tester answered 'no' to the human checks")
-
-        # --- assertion window ----------------------------------------------
-        window_ms = rule.timeout_ms if rule is not None else opts.ruleless_window_ms
-        await asyncio.sleep(window_ms / 1000.0)
-        result.uplinks = session.recorder.snapshot()
-
-        if rule is None or not rule.has_assertions:
-            result.assertion_results = []
-            result.reasons.append("no assertion rule for this case")
+    if mode == "physical" or (rule is not None and rule.checks):
+        # block on the tester (instruction may be given even in inject
+        # mode when the rule carries human visual checks)
+        if instruction:
+            result.instruction = instruction
+            opts.progress(f"[{case.id}] 指引: {instruction}")
+        answer = await _wait_for_confirm(
+            case.id, instruction or case.physical or "",
+            [{"id": c["id"], "prompt": c["prompt"]} for c in (rule.checks if rule else [])],
+            state_path, opts.confirm_timeout_s)
+        if answer is None:
+            result.reasons.append("physical step not confirmed (timeout)")
+            result.human_checks = [
+                {**c, "answer": "unanswered"} for c in (rule.checks if rule else [])]
         else:
-            result.assertion_results = evaluate(rule, result.uplinks, profile.hooks)
+            result.human_checks = [
+                {**c, "answer": answer["answer"]} for c in (rule.checks if rule else [])]
+            if answer["answer"] != "yes":
+                result.reasons.append("tester answered 'no' to the human checks")
 
-        human_confirmed = not (rule is not None and rule.checks and not result.human_checks)
-        human_declined = any(h.get("answer") == "no" for h in result.human_checks)
-        result.result = result_of(
-            result.assertion_results,
-            had_rule=(rule is not None and rule.has_assertions),
-            human_confirmed=human_confirmed,
-            human_declined=human_declined,
-            divergence=rule.divergence if rule else None,
-        )
-    finally:
-        await close_session(session)
+    # --- assertion window ----------------------------------------------
+    window_ms = rule.timeout_ms if rule is not None else opts.ruleless_window_ms
+    await asyncio.sleep(window_ms / 1000.0)
+    result.uplinks = session.recorder.snapshot()
 
+    if rule is None or not rule.has_assertions:
+        result.assertion_results = []
+        result.reasons.append("no assertion rule for this case")
+    else:
+        result.assertion_results = evaluate(rule, result.uplinks, profile.hooks)
+
+    human_confirmed = not (rule is not None and rule.checks and not result.human_checks)
+    human_declined = any(h.get("answer") == "no" for h in result.human_checks)
+    result.result = result_of(
+        result.assertion_results,
+        had_rule=(rule is not None and rule.has_assertions),
+        human_confirmed=human_confirmed,
+        human_declined=human_declined,
+        divergence=rule.divergence if rule else None,
+    )
     result.duration_ms = _elapsed(started)
     return result
 

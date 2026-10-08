@@ -140,6 +140,32 @@ divergence = "固件现状与需求不符"
                      divergence=r.divergence) == "MANUAL"
 
 
+def test_fresh_connection_flag(tmp_path):
+    p = _write(tmp_path, """
+case_id = "X1.1"
+fresh_connection = true
+""", case_id="X1.1")
+    assert load_rule(p).fresh_connection is True
+    p2 = _write(tmp_path, """
+case_id = "X2.1"
+""", case_id="X2.1")
+    assert load_rule(p2).fresh_connection is False
+
+
+def test_fresh_connection_inside_table_is_rejected(tmp_path):
+    # TOML scopes this key into [[assert.expect]]; the loader must say so
+    # instead of silently ignoring it (it once did)
+    p = _write(tmp_path, """
+case_id = "X1.1"
+[[assert.expect]]
+pattern = "BE EF"
+fresh_connection = true
+""", case_id="X1.1")
+    with pytest.raises(Exception) as excinfo:
+        load_rule(p)
+    assert "unknown key" in str(excinfo.value)
+
+
 def test_find_rule(tmp_path):
     assert find_rule(tmp_path, "X1.1") is None
     _write(tmp_path, "case_id = 'X1.1'\n", case_id="X1.1")

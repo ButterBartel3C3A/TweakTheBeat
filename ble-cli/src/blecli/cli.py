@@ -103,6 +103,16 @@ def build_parser() -> ArgParser:
 
     sub.add_parser("repl", help="interactive human-mode shell")
 
+    d = sub.add_parser("daemon", help="long-connection daemon (D11: AI commands reuse one link)")
+    dsub = d.add_subparsers(dest="daemon_command", parser_class=ArgParser)
+    ds = dsub.add_parser("start", help="launch the daemon in the background")
+    ds.add_argument("--idle-timeout", type=float, default=600.0,
+                    help="auto-stop after N seconds without commands (default 600)")
+    dsrv = dsub.add_parser("serve", help="foreground service loop (internal, started by 'start')")
+    dsrv.add_argument("--idle-timeout", type=float, default=600.0)
+    dsub.add_parser("stop", help="stop the daemon")
+    dsub.add_parser("status", help="daemon status (running / record)")
+
     return p
 
 
@@ -146,6 +156,8 @@ async def _dispatch(args, envelope: Envelope) -> dict[str, Any]:
         return {"devices": [d.to_dict() for d in devices]}
 
     if command == "repl":
+        from .daemon import assert_not_busy
+        assert_not_busy(Path(args.state_file))
         from .repl import run_repl
         await run_repl(args)
         return {}
@@ -164,6 +176,9 @@ async def _dispatch(args, envelope: Envelope) -> dict[str, Any]:
     if command in ("cases",):
         return await _do_cases(args, envelope)
 
+    if command == "daemon":
+        return await _do_daemon(args)
+
     if command == "report":
         from .cases.report import read_summary
         state = _state(args)
@@ -177,6 +192,14 @@ async def _dispatch(args, envelope: Envelope) -> dict[str, Any]:
 
     # --- device commands ------------------------------------------------
     profile = _profile(args)
+
+    # transparent daemon routing (D11): a live daemon holds the link, so
+    # route through the file channel instead of re-connecting; any channel
+    # failure falls back to the direct path below.
+    routed = await _route_daemon(args, command, envelope)
+    if routed is not None:
+        return routed
+
     if command in ("connect", "init"):
         return await _with_session(args, profile, _do_connect,
                                    run_handshake=not getattr(args, "no_handshake", False))
@@ -259,6 +282,60 @@ async def _do_listen(session: Session, listen_s: float) -> dict[str, Any]:
     return {"uplinks": session.recorder.snapshot()}
 
 
+async def _do_daemon(args) -> dict[str, Any]:
+    from . import daemon
+    state_path = Path(args.state_file)
+    sub = args.daemon_command
+    if sub == "serve":
+        await daemon.serve(args)
+        return {"served": True}
+    if sub == "start":
+        if not args.profile:
+            raise BleCliError.usage("daemon start 需要 --profile")
+        return daemon.start_daemon(args, state_path)
+    if sub == "stop":
+        return daemon.stop_daemon(state_path)
+    if sub == "status":
+        rec = daemon.read_record(state_path)
+        alive = daemon.is_alive_sync(state_path) if rec else False
+        return {"running": alive, "record": rec}
+    raise BleCliError.usage("daemon 需要子命令: start | serve | stop | status")
+
+
+async def _route_daemon(args, command: str, envelope: Envelope) -> dict[str, Any] | None:
+    """Route a device command through the daemon channel when one is alive.
+
+    Returns the envelope ``data`` payload, or None to fall back to direct.
+    """
+    from . import daemon
+    from .errors import BleCliError as _E
+    if command not in ("connect", "init", "gatt", "write", "sub"):
+        return None
+    if command == "write" and getattr(args, "hex", None):
+        # validate early so usage errors never reach the daemon
+        try:
+            parse_hex(args.hex)
+        except ValueError as exc:
+            raise _E.usage(f"bad hex: {exc}") from None
+    cmd_args: dict[str, Any] = {
+        "write": {"hex": getattr(args, "hex", ""), "listen": getattr(args, "listen", 0.0)},
+        "sub": {"timeout": getattr(args, "timeout", 0.0)},
+    }.get(command, {})
+    try:
+        out = await daemon.route_or_none(Path(args.state_file), command, cmd_args)
+    except Exception:
+        out = None
+    if out is None:
+        if daemon.read_record(Path(args.state_file)) is not None:
+            daemon.clear_record(Path(args.state_file))  # stale record
+        return None
+    if out.get("error"):
+        err = out["error"]
+        raise _E(err.get("code", "internal_error"), err.get("message", "daemon error"))
+    envelope.warnings.append("routed via daemon")
+    return out.get("data", {})
+
+
 def _do_confirm(args) -> dict[str, Any]:
     state = _state(args)
     pending = state.pending_confirm()
@@ -277,7 +354,7 @@ def _do_confirm(args) -> dict[str, Any]:
 async def _do_cases(args, envelope: Envelope) -> dict[str, Any]:
     from .cases.parser import ParseConfig, parse_doc, validate
     from .cases.report import write_report
-    from .cases.runner import RunOptions, run_case
+    from .cases.runner import RunOptions, run_cases
 
     if not args.cases_command:
         raise BleCliError.usage("cases needs a subcommand: list | run")
@@ -298,6 +375,8 @@ async def _do_cases(args, envelope: Envelope) -> dict[str, Any]:
     if args.cases_command == "run":
         profile = _profile(args)
         state = _state(args)
+        from .daemon import assert_not_busy
+        assert_not_busy(Path(args.state_file))
         if args.ids:
             cases = [c for c in cases if c.id in args.ids]
             if not cases:
@@ -312,13 +391,14 @@ async def _do_cases(args, envelope: Envelope) -> dict[str, Any]:
         )
         envelope.warnings.append(f"running {len(cases)} case(s)")
 
-        results = []
-        for i, case in enumerate(cases, start=1):
-            print(f"[{i}/{len(cases)}] {case.id}", file=sys.stderr, flush=True)
-            r = await run_case(case, profile, lambda: BleakBackend(),
-                               Path(args.state_file), opts, args.address)
-            results.append(r)
-            state.log(f"case {case.id} -> {r.result}")
+        def progress(msg: str) -> None:
+            print(msg, file=sys.stderr, flush=True)
+
+        opts.progress = progress
+        results = await run_cases(cases, profile, lambda: BleakBackend(),
+                                  Path(args.state_file), opts, args.address)
+        for r in results:
+            state.log(f"case {r.case_id} -> {r.result}")
             state.save()
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

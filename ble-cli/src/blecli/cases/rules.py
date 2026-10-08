@@ -18,7 +18,10 @@ from ..core.frames import make_frame_type
 from ..errors import BleCliError, CASES_PARSE_FAILED
 from ..util import Pattern, parse_hex
 
-RULE_KEYS = {"case_id", "mode", "inject", "human", "assert", "expect", "divergence"}
+RULE_KEYS = {"case_id", "mode", "inject", "human", "assert", "expect", "divergence",
+           "fresh_connection"}
+EXPECT_SPEC_KEYS = {"name", "match", "pattern", "prefix", "len",
+                    "count", "check", "field"}
 
 
 @dataclass
@@ -42,6 +45,7 @@ class Rule:
     expect_not: list[Pattern] = field(default_factory=list)
     expect_none: bool = False
     divergence: str | None = None
+    fresh_connection: bool = False  # D12: 该用例前强制重开会话（连接复用时的例外）
 
     @property
     def has_assertions(self) -> bool:
@@ -73,6 +77,7 @@ def _build(p: Path, raw: dict[str, Any]) -> Rule:
             _fail(p, f"unknown key '{key}' (allowed: {sorted(RULE_KEYS)})")
 
     case_id = str(raw.get("case_id", p.stem))
+    fresh_connection = bool(raw.get("fresh_connection", False))
     mode = str(raw.get("mode", "inject"))
     if mode not in ("inject", "physical", "observe"):
         _fail(p, f"mode {mode!r} not in {{inject, physical, observe}}")
@@ -106,6 +111,9 @@ def _build(p: Path, raw: dict[str, Any]) -> Rule:
             _fail(p, f"[assert] has unknown key '{k}'")
     expect: list[ExpectSpec] = []
     for i, spec in enumerate(assert_raw.get("expect") or []):
+        for k in spec:
+            if k not in EXPECT_SPEC_KEYS:
+                _fail(p, f"assert.expect[{i}] has unknown key '{k}'")
         try:
             ft = make_frame_type(spec, default_name=f"expect{i}")
         except ValueError as exc:
@@ -128,6 +136,7 @@ def _build(p: Path, raw: dict[str, Any]) -> Rule:
 
     return Rule(
         case_id=case_id,
+        fresh_connection=fresh_connection,
         mode=mode,
         inject=inject,
         instruction=str(instruction) if instruction else None,

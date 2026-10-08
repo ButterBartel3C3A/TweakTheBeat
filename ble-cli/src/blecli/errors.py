@@ -24,6 +24,8 @@ PROFILE_HOOK_ERROR = "profile_hook_error"
 CASES_DOC_NOT_FOUND = "cases_doc_not_found"
 CASES_PARSE_FAILED = "cases_parse_failed"
 STATE_FILE_ERROR = "state_file_error"
+DAEMON_TIMEOUT = "daemon_timeout"        # daemon 通道无响应（已回退或需重试）
+DEVICE_BUSY = "device_busy"              # 设备被 daemon/REPL 占用（单连接互斥）
 BLE_OS_ERROR = "ble_os_error"
 INTERNAL_ERROR = "internal_error"
 

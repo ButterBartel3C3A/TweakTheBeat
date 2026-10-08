@@ -41,10 +41,12 @@ description: 操作 ble-cli（BLE GATT 调试 CLI）——扫描、连接、发�
 | `cases run --doc PATH --rules DIR [--id C]... [--group G] [--out P]` | 执行用例（需 profile），出报告；--id 可重复指定多个用例 |
 | `report [--path P]` | 汇总某次报告（默认上次） |
 | `repl` | 交互式调试壳（持久连接） |
+| `daemon start [--idle-timeout N]` | 后台进程持连接（默认空闲 10 分钟自动停），此后设备命令透明路由走它 |
+| `daemon stop` / `daemon status` | 停止 / 查看 daemon |
 
 全局参数：`--json`（AI 模式）、`--profile PATH`（profile.toml 路径，或环境变量 `BLE_CLI_PROFILE`）、`--state-file PATH`（默认 `.local/runs/state.json`）、`--address MAC`（跳过发现直连）。
 
-设备命令（connect/init/gatt/write/sub）每条都是独立连接：先按 显式 --address → 状态文件记住的地址 → 扫描过滤 的顺序定位设备，再连接、校验 GATT、订阅、回放握手。
+设备命令（connect/init/gatt/write/sub）的定位顺序：显式 --address → 状态文件记住的地址 → 扫描过滤。**daemon 存活时设备命令透明路由走 daemon 的既有连接**（无 daemon 则每条独立连接+握手）；`cases run` / `repl` 与 daemon 互斥（单连接设备），冲突报 `device_busy`，先 `daemon stop`。
 
 ## 4. profile 与断言规则 TOML 速写
 
@@ -104,6 +106,7 @@ module = "adapter"              # 可选：profile 同目录 adapter.py
 
 ```toml
 case_id = "X1.1"
+fresh_connection = true          # 可选：该用例前强制重开会话（观察握手的 observe 用例必须）
 mode = "inject"                  # inject | physical | observe
 
 [[inject]]
@@ -181,7 +184,9 @@ ble-cli --json --profile <P> sub --timeout 5
 
 **单用例（含物理刺激）**：`ble-cli --json --profile <P> cases run --doc <D> --rules <R> --id X1.2`。执行到 physical 用例会阻塞等待确认——此时（另一个终端/进程）运行 `ble-cli --json confirm --yes --note "灯亮"`；执行器轮询状态文件，读到后继续。超时（默认 600s）则清标记并降级 MANUAL。
 
-**全量 + 报告**：`ble-cli --json --profile <P> cases run --doc <D> --rules <R> --out report`。产出 `report_<时间戳>.md` + `.json` sidecar；`--out` 给无扩展名路径。汇总用 `ble-cli --json report --path report_xxx`。
+**全量 + 报告**：`ble-cli --json --profile <P> cases run --doc <D> --rules <R> --out report`。产出 `report_<时间戳>.md` + `.json` sidecar；`--out` 给无扩展名路径。汇总用 `ble-cli --json report --path report_xxx`。一次 run 全程**单连接复用**（D12）：N 用例 1 次连接；断线自动重连重试该用例一次；观察握手的 observe 用例须在规则里声明 `fresh_connection = true`。
+
+**长会话（daemon）**：`ble-cli --json --profile <P> daemon start` 后逐条设备命令秒回、设备全程保持唤醒；结束时 `daemon stop`。跑 cases run / repl 前先 stop（否则 `device_busy`）。
 
 **只发一帧**：`ble-cli --json --profile <P> write "AA BB CC" --listen 1`。hex 接受空格/冒号/连字符分隔或紧凑写法（`aabbcc`）。
 
